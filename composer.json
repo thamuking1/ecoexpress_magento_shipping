@@ -7,9 +7,6 @@
     "OSL-3.0",
     "AFL-3.0"
   ],
-  "require": {
-       "php": "~7.3.0||~7.4.0"
-  },
   "autoload": {
     "psr-4": {
       "Ecoexpress\\Carrier\\": ""
