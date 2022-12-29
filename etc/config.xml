@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <carriers>
+            <ecoexpress>
+                <active>1</active>
+                <sallowspecific>0</sallowspecific>
+                <model>Ecoexpress\Carrier\Model\EcoExpress</model>
+                <name>Eco Express</name>
+                <title>Eco Express</title>
+                <max_package_weight>100</max_package_weight>
+                <type>I</type>
+                <specificerrmsg>This shipping method is currently unavailable, kindly contact us.</specificerrmsg>
+            </ecoexpress>
+        </carriers>
+    </default>
+</config>
