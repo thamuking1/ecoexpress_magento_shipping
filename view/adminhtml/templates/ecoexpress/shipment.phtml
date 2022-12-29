@@ -1,0 +1,530 @@
+<?php
+
+$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+$current_order = $objectManager->create('Magento\Sales\Model\Order')->load($this->order_id);
+$store_id = $current_order->getStoreId();
+$shipping = $current_order->getShippingAddress();
+$customer_id = $current_order->getCustomerId();
+$customer = $objectManager->create('Magento\Customer\Model\Customer')->load($customer_id);
+$countries = $objectManager->create('Magento\Directory\Model\Config\Source\Country')->toOptionArray();
+$payment = $current_order->getPayment();
+$method = $payment->getMethodInstance();
+$methodTitle = $method->getCode();
+$cod = (strpos($methodTitle, "cashondelivery") === 0)? true: false;
+
+$payment = $current_order->getPayment();
+
+$total_weight = 0;
+$items_count = 0;
+$is_shipped = false;
+$items_order = $current_order->getAllVisibleItems();
+
+$shipp_price = 0;
+$shipp_weight = 0;
+
+$shipment_description = '';
+foreach ($items_order as $item_order) {
+    if ($item_order->getWeight() != 0) {
+        $weight = $item_order->getWeight() * $item_order->getQtyOrdered();
+    } else {
+        $weight = 0.5 * $item_order->getQtyOrdered();
+    }
+    $total_weight += $weight;
+    if ($item_order->getQtyOrdered() > $item_order->getQtyShipped()) {
+        $items_count += $item_order->getQtyOrdered() - $item_order->getQtyShipped();
+
+        $shipment_description .= $block->escapeHtmlAttr($item_order->getId()) . ' - ' . trim($item_order->getName())." ";
+
+    } elseif ($item_order->getQtyOrdered() == $item_order->getQtyShipped()) {
+        $is_shipped = true;
+    }
+
+    $shipp_price += $item_order->getQtyShipped() * $item_order->getBasePrice();
+    $shipp_weight += $item_order->getQtyShipped() * $item_order->getWeight();
+
+}
+if ($items_count == 0) {
+    $shipp_price = 0;
+    $shipp_weight = 0;
+}
+
+$state = "";
+
+
+if ($shipping != null) {
+    if (($shipping->getData('region_id')) && ($shipping->getData('country_id') == 'US')) {
+        $region = $objectManager->create('\Magento\Directory\Model\Region')->load($shipping->getData('region_id'));
+        $state = $region->getName();
+    } else {
+        $state = $shipping->getData('region');
+    }
+
+
+    $billing_state = "";
+    if ($shipping->getData('region_id')) {
+        $region = $objectManager->create('\Magento\Directory\Model\Region')->load($shipping->getData('region_id'));
+        $billing_state = $region->getName();
+    } else {
+        $billing_state = $shipping->getData('region');
+    }
+}
+
+$form_session = $objectManager->create('\Magento\Backend\Model\Session');
+$form_data = $form_session->getData('form_data');
+$session = false;
+$url_interface = \Magento\Framework\App\ObjectManager::getInstance()->get('Magento\Framework\UrlInterface');
+$current_url = $url_interface->getCurrentUrl();
+$form_session->setPreviousUrl($current_url);
+
+if (!empty($form_data)) {
+    $session = true;
+}
+$scope_config = $objectManager->create('\Magento\Framework\App\Config\ScopeConfigInterface');
+$shipper_company_name = $scope_config->getValue('ecoexpress/shipperdetail/shipper_company', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id);
+$shipper_name = $scope_config->getValue('ecoexpress/shipperdetail/shipper_name', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id);
+$shipper_email = $scope_config->getValue('ecoexpress/shipperdetail/shipper_email', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id);
+$shipper_address = $scope_config->getValue('ecoexpress/shipperdetail/shipper_address', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id);
+$shipper_country = $scope_config->getValue('ecoexpress/shipperdetail/shipper_country', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id);
+$shipper_city = $scope_config->getValue('ecoexpress/shipperdetail/shipper_city', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id);
+$shipper_phone = $scope_config->getValue('ecoexpress/shipperdetail/shipper_phone', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id);
+$allowed_service_types = explode(',', $scope_config->getValue('ecoexpress/config/allowed_service_types', \Magento\Store\Model\ScopeInterface::SCOPE_STORE, $store_id));
+$service_types = $objectManager->create('Ecoexpress\Carrier\Model\Carrier\Ecoexpress\Source\ServiceTypes')->toOptionArray();
+?>
+<style>
+
+/* The Modal (background) */
+.modal {
+  display: none; /* Hidden by default */
+  position: fixed; /* Stay in place */
+  z-index: 1; /* Sit on top */
+  padding-top: 100px; /* Location of the box */
+  left: 0;
+  top: 0;
+  width: 100%; /* Full width */
+  height: 100%; /* Full height */
+  overflow: auto; /* Enable scroll if needed */
+  background-color: rgb(0,0,0); /* Fallback color */
+  background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+}
+
+/* Modal Content */
+.modal-content {
+  background-color: #fefefe;
+  margin: auto;
+  padding: 20px;
+  border: 1px solid #888;
+  width: 80%;
+}
+
+/* The Close Button */
+.close {
+  color: #aaaaaa;
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+}
+
+.close:hover,
+.close:focus {
+  color: #000;
+  text-decoration: none;
+  cursor: pointer;
+}
+</style>
+
+      <div class="modal" id="shipment_create_modal">
+        <!-- Modal content -->
+          <div class="modal-content">
+        <!--div id="loading">
+         <img id="loading-image" src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/0.16.1/images/loader-large.gif" alt="Loading..." />
+       </div-->
+
+        <div id="ecoexpress_overlay">
+            <div id="ecoexpress_shipment_creation">
+                <form id="ecoexpress_shipment" method="post"
+                      action="<?php echo $block->escapeUrl($this->getUrl('ecoexpressshipmentcreate/index/shipment')); ?>"
+                      enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="the_ecoexpress_shipment"/>
+                    <input name="form_key" type="hidden" value="<?php echo $block->escapeHtmlAttr($this->getFormKey()) ?>"/>
+                    <input type="hidden" name="ecoexpress_shipment_referer" value="<?php echo $block->escapeHtmlAttr($current_url) ?>"/>
+
+                    <input name="ecoexpress_shipment_original_reference" type="hidden"
+                           value="<?php echo $block->escapeHtmlAttr($current_order->getIncrementId()) ?>"/>
+
+                    <div id="ecoexpress_messages"></div>
+
+                    <div class="row">
+                      <label class="col-md-12"><strong>Shipper Detail :-</strong></label>
+
+                      <div class="form-group col-md-6">
+                         <label>Shipper Company Name</label>
+                         <input class="form-control" id="shipper_company_name" name="shipper_company_name" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['shipper_company_name'] : $shipper_company_name) ?>" />
+                      </div>
+
+                      <div class="form-group col-md-6">
+                         <label>Shipper Name</label>
+                         <input class="form-control" id="shipper_name" name="shipper_name" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['shipper_name'] : $shipper_name) ?>" required="required" />
+                      </div>
+
+                    </div>
+
+                    <div class="row">
+                      <div class="form-group col-md-6">
+                         <label>Shipper Phone No.</label>
+                         <input class="form-control" id="shipper_phone" name="shipper_phone" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['shipper_phone'] : $shipper_phone) ?>" required="required" />
+                      </div>
+
+                    </div>
+
+                    <div class="row">
+                      <div class="form-group col-md-12">
+                         <label>Shipper Address</label>
+                         <input class="form-control" id="shipper_address" name="shipper_address" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['shipper_address'] : $shipper_address) ?>" required="required" />
+                      </div>
+                    </div>
+
+                    <div class="row">
+                      <div class="form-group col-md-6">
+                         <label>Shipper Country</label>
+                         <select class="form-control" id="shipper_country" name="shipper_country" required="required">
+
+                           <?php
+                           foreach ($countries as $key => $value){ ?>
+                             <option value="<?php echo $block->escapeHtmlAttr($value['value']) ?>" <?php
+                             if ($shipper_country) {
+                                 echo (($session) ? $form_data['shipper_country'] == $value['value'] : $shipper_country == $value['value']) ? 'selected="selected"' : '';
+                             } ?> ><?php echo $block->escapeHtmlAttr($value['label']) ?></option>
+                           <?php } ?>
+
+                         </select>
+                      </div>
+
+                      <div class="form-group col-md-6">
+                         <label>Sender City</label>
+                         <input class="form-control" id="shipper_city" name="shipper_city" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['shipper_city'] : $shipper_city) ?>" required="required" />
+                      </div>
+
+                    </div>
+
+                    <div class="row">
+                      <label class="col-md-12"><strong>Receiver Detail :-</strong></label>
+
+                      <div class="form-group col-md-6">
+
+                        <?php $rec_company = ''; ?>
+                        <?php $rec_company = (empty($rec_company) and $shipping) ? $shipping->getName() : $rec_company; ?>
+                        <?php $rec_company = ($shipping) ? $shipping->getData('company') : ''; ?>
+                        <?php $rec_company = ($session) ? $formData['rec_company_name'] : $rec_company; ?>
+                        <?php
+                              $rec_company = (empty($rec_company) and $shipping) ? $shipping->getName() : $rec_company;
+                        ?>
+
+                         <label>Receiver Company Name</label>
+                         <input class="form-control" id="rec_company_name" name="rec_company_name" value="<?php echo $block->escapeHtmlAttr($rec_company) ?>" />
+                      </div>
+
+                      <div class="form-group col-md-6">
+                        <?php $rec_name = ($shipping) ? $shipping->getName() : ''; ?>
+                        <?php $rec_name = ($session) ? $form_data['rec_name'] : $rec_name; ?>
+                         <label>Receiver Name</label>
+                         <input class="form-control" id="rec_name" name="rec_name" value="<?php echo $block->escapeHtmlAttr($rec_name) ?>" required="required" />
+                      </div>
+
+                    </div>
+
+                    <div class="row">
+
+                      <div class="form-group col-md-6">
+                        <?php $rec_phone = ($shipping) ? $shipping->getData('telephone') : ''; ?>
+                        <?php $rec_phone = ($session) ? $form_data['rec_phone'] : $rec_phone; ?>
+                         <label>Receiver Phone No.</label>
+                         <input class="form-control" id="rec_phone" name="rec_phone" value="<?php echo $block->escapeHtmlAttr($rec_phone) ?>" required="required" />
+                      </div>
+
+                    </div>
+
+                    <div class="row">
+                      <div class="form-group col-md-12">
+                        <?php $street = ($shipping) ? $shipping->getData('street') : ''; ?>
+                        <?php $street = ($session) ? $form_data['rec_address'] : $street; ?>
+                         <label>Receiver Address</label>
+                         <input class="form-control" id="rec_address" name="rec_address" value="<?php echo $block->escapeHtmlAttr($street) ?>" required="required" />
+                      </div>
+                    </div>
+
+                    <div class="row">
+                      <div class="form-group col-md-6">
+                         <?php $rec_country = ($shipping) ? $shipping->getData('country_id') : ''; ?>
+                         <label>Receiver Country</label>
+                         <select class="form-control" id="rec_country" name="rec_country" required="required">
+
+                           <?php foreach ($countries as $key => $value){ ?>
+                             <option value="<?php echo $block->escapeHtmlAttr($key) ?>" <?php
+                             if ($rec_country) {
+                                 echo (($session) ? $form_data['rec_country'] == $value['value'] : $rec_country == $value['value']) ? 'selected="selected"' : '';
+                             } ?> ><?php echo $block->escapeHtmlAttr($value['label']) ?></option>
+                           <?php } ?>
+
+                         </select>
+                      </div>
+
+                      <div class="form-group col-md-6">
+                         <?php $rec_city = ($shipping) ? $shipping->getData('city') : ''; ?>
+                         <label>Receiver City</label>
+                         <input class="form-control" id="rec_city" name="rec_city" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['rec_city'] : $rec_city) ?>" required="required" />
+                      </div>
+
+                    </div>
+
+                    <div class="row">
+                      <div class="form-group col-md-6">
+                        <?php $rec_postcode = ($shipping) ? $shipping->getData('postcode') : ''; ?>
+                         <label>Receiver PostCode</label>
+                         <input class="form-control" id="rec_postcode" name="rec_postcode" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['rec_postcode'] : $rec_postcode) ?>" />
+                      </div>
+                    </div>
+
+                    <div class="row">
+                      <label class="col-md-12"><strong>Shipment Details</strong></label>
+                      <div class="col-md-6">
+                        <label>Product Type</label>
+                        <select class="form-control" id="product_type" name="product_type" required="required">
+                          <option value="2" selected = "selected">Non Document</option>
+                          <option value="1">Document</option>
+                        </select>
+                      </div>
+                      <div class="col-md-6">
+                        <label>Service Type</label>
+                        <select class="form-control" id="service_type" name="service_type" required="required">
+                           <?php
+                           if(count($allowed_service_types) > 0){
+                           foreach ($service_types as $key => $value){
+                                if(in_array($value['value'], $allowed_service_types)){
+                             ?>
+
+                             <option value="<?php echo $block->escapeHtmlAttr($value['value']); ?>" <?php if(($session) ? $form_data['service_type'] == $value['value'] : false){ ?>selected="selected"<?php } ?>><?php echo $block->escapeHtmlAttr($value['label']); ?></option>
+
+                           <?php
+                              }
+                              }
+                            }
+                          ?>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="row">
+                      <div class="col-md-6">
+                        <label>Shipper Reference No</label>
+                        <input class="form-control" id="ref_no" name="ref_no" value="<?php echo $block->escapeHtmlAttr($current_order->getIncrementId()); ?>"></input>
+                      </div>
+
+                      <div class="col-md-6">
+                        <?php $cod_amount = ($current_order->getPayment()->getMethodInstance()->getCode() != 'ccsave') ? round($current_order->getData('grand_total')- $shipp_price, 2) : ''; ?>
+                        <label>COD Amount</label>
+                        <input class="form-control" type="number" name="cod_amount" id="ecoexpress_order_cod_amount" value="<?php echo $block->escapeHtmlAttr((($cod == true)? $cod_amount: "")) ?>"></input>
+                      </div>
+                    </div>
+
+                    <div class="row  form-group">
+                      <div class="col-md-6">
+                        <?php if ($items_count != 0) { ?>
+                          <label>Items Not Shipped</label></br>
+                          <table class="table">
+                              <tr>
+                                <th>Name</th>
+                                <th>Qty</th>
+                                <th>Action</th>
+                              </tr>
+
+                              <?php
+                                foreach($items_order as $item_order){
+                                  if ($item_order->getQtyOrdered() > $item_order->getQtyShipped()) {
+                               ?>
+                               <tr id="item<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                   class="ecoexpress_order_item">
+                                   <?php
+                                   $order_qty = abs($item_order->getQtyOrdered() - $item_order->getQtyShipped());
+                                   if ($order_qty == 0 and $is_shipped) {
+                                       $order_qty = intval($item_order->getQtyShipped());
+                                   }
+                                   ?>
+                                   <td class="ecoexpress_order_item_name">
+                                           <span
+                                               title="<?php echo $block->escapeHtmlAttr($item_order->getName()); ?>"><?php echo $block->escapeHtmlAttr($item_order->getName()); ?></span>
+                                       <input type="hidden"
+                                              id="ecoexpress_order_items_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              name="ecoexpress_order_items[<?php echo $block->escapeHtmlAttr((int)$item_order->getId()); ?>]"
+                                              value="<?php echo $block->escapeHtmlAttr($order_qty); ?>"/>
+                                   </td>
+                                   <td class="ecoexpress_order_item_qty">
+                                       <input class="ecoexpress_input_order_items_qty" type="text"
+                                              name="p_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              value="<?php echo $block->escapeHtmlAttr($order_qty); ?>"/>
+
+                                       <input type="hidden"
+                                              id="ecoexpress_order_items_base_price_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              name="ecoexpress_order_items_base_price_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              value="<?php echo $block->escapeHtmlAttr($item_order->getBasePrice()) ?>"/>
+                                       <input type="hidden"
+                                              id="ecoexpress_order_items_base_weight_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              name="ecoexpress_order_items_base_weight_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              value="<?php echo $block->escapeHtmlAttr($item_order->getWeight()) ?>"/>
+                                       <input type="hidden"
+                                              id="ecoexpress_order_items_total_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              name="ecoexpress_order_items_total_<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>"
+                                              value="<?php echo $block->escapeHtmlAttr($order_qty); ?>"/>
+
+                                   </td>
+                                   <td class="ecoexpress_order_item_options">
+                                       <a data-ecoexpressid = '<?php echo $block->escapeHtmlAttr($item_order->getId()); ?>' data-item-price ='<?php echo $block->escapeHtmlAttr($item_order->getBasePrice() * ($item_order->getQtyOrdered()- $item_order->getQtyShipped())); ?>'  data-order-total-weight ='<?php echo $block->escapeHtmlAttr(($item_order->getWeight() * ($item_order->getQtyOrdered()-$item_order->getQtyShipped()))) ?>' data-item-weight='<?php echo$block->escapeHtmlAttr(($item_order->getWeight())) ?>' href="javascript:void(0);" class="ecoexpress_order_item_remove">Remove</a>
+                                   </td>
+                               </tr>
+
+                             <?php
+                                }
+                              }
+                               ?>
+
+                          </table>
+                        <?php }else{ ?>
+                          <label>All Items have been shipped</label>
+                        <?php } ?>
+                      </div>
+
+                      <div class="col-md-6">
+                        <label>Weight</label>
+                        <input class="form-control" type="number" name="weight" id="ecoexpress_order_weight" value="<?php echo $block->escapeHtmlAttr(($session) ? $form_data['weight'] : ($total_weight - $shipp_weight)) ?>" required="required"></input>
+                      </div>
+                    </div>
+
+                    <div class="row">
+                      <div class="col-md-12">
+                        <label>Goods Description</label>
+                        <textarea class="form-control" name="goods_description" id="goods_description" required="required"><?php
+                         echo $block->escapeHtmlAttr(($session) ? $form_data['goods_description'] : $shipment_description);
+                         ?></textarea>
+                      </div>
+
+                      <div class="col-md-12">
+                        <label>Special Instruction</label>
+                        <textarea class="form-control" name="special_instruction" id="special_instruction"><?php
+                         echo $block->escapeHtmlAttr(($session) ? $form_data['special_instruction'] : '');
+                         ?></textarea>
+                      </div>
+                    </div>
+
+                    <div class="ecoexpress_clearer"></div>
+                    <div style="float: right;margin-bottom: 20px;margin-top: -11px;">
+
+          </br></br>
+                            <div style="width: 100%;  padding-top:10px; overflow:hidden;">
+                                <div style="float: right;font-size: 11px;margin-bottom: 10px;width: 184px;">
+                                    <input
+                                            style="float: left; width: auto; height:16px; display:block;" type="checkbox"
+                                            name="ecoexpress_email_customer" value="yes"/>
+                                    <span style="float: left; margin-top: -2px;">Notify customer by email</span>
+                                </div>
+                            </div>
+                            <button id="ecoexpress_shipment_creation_submit_id" type="submit"
+                                    name="ecoexpress_shipment_creation_submit"
+                                    class="button-primary">Create Shipment
+                            </button>
+
+                        <button id="ecoexpress_close" class="button-primary create_awb_close" type="button" data-dismiss="modal">Close</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+      </div>
+      </div>
+
+
+<script>
+
+    require(['jquery','jquery/ui'], function($){
+
+    var messages_content;
+
+    var modal = document.getElementById("shipment_create_modal");
+
+    <?php
+    if (strpos($current_url, "eco_shipment_create_show/show") !== false) {
+        ?>
+    $("#messages").ready(function () {
+        $("#ecoexpress_messages").html($("#messages").html());
+    });
+        <?php
+    }
+    ?>
+
+    $('#create_ecoexpress_shipment').click(function(){
+
+      modal.style.display = "block";
+
+    });
+
+    $('.create_awb_close').click(function(){
+
+      modal.style.display = "none";
+
+    });
+
+    $(".ecoexpress_input_order_items_qty").keyup(function () {
+        var the_id = $(this).attr('name');
+        the_id = the_id.replace(/\D/g,'');
+        var items_price = 0;
+
+        var itemWeight = 0;
+        var itemTotalPrice = 0;
+
+        $("#ecoexpress_order_items_" + the_id).val($(this).val());
+
+        $(".ecoexpress_input_order_items_qty").each(function (price_index) {
+            var the_id_qty = $(this).attr('name');//alert(the_id_qty);
+            the_id_qty = the_id_qty.replace(/\D/g,'');
+            items_price += $(this).val() * $("#ecoexpress_order_items_base_price_" + the_id_qty).val();
+
+            itemWeight += $(this).val() * $("#ecoexpress_order_items_base_weight_" + the_id_qty).val();
+            itemTotalPrice += (parseInt($("#ecoexpress_order_items_total_" + the_id_qty).val()) - parseInt($(this).val())) * $("#ecoexpress_order_items_base_price_" + the_id_qty).val();
+
+        });
+
+        $("#ecoexpress_order_weight").val(itemWeight.toFixed(2));
+
+        $("#ecoexpress_order_cod_amount").val(parseFloat(items_price));
+    });
+
+    $('.ecoexpress_order_item_remove').click(function(){
+
+      var ecoexpress_order_item_id = this.getAttribute("data-ecoexpressid");
+      var ecoexpress_order_item_price = this.getAttribute("data-item-price");
+      var ecoexpress_order_order_total_weight = this.getAttribute("data-order-total-weight");
+      var ecoexpress_order_item_weight = this.getAttribute("data-item-weight");
+
+      if ($(".ecoexpress_order_item").length > 1) {
+
+          $("#ecoexpress_order_weight").val((parseFloat($("#ecoexpress_order_weight").val()) - parseFloat(ecoexpress_order_item_weight)).toFixed(2));
+
+          //new
+          $('#ecoexpress_order_cod_amount').val((parseFloat($('#ecoexpress_order_cod_amount').val()) - parseFloat(parseInt($("input[name=p_" + ecoexpress_order_item_id + "]").val()) * parseFloat($('#ecoexpress_order_items_base_price_' + ecoexpress_order_item_id).val()))).toFixed(2));
+
+          $("#item" + ecoexpress_order_item_id).css('background', '#F2C2C8');
+          $("#item" + ecoexpress_order_item_id).fadeOut(500);
+          $("#item" + ecoexpress_order_item_id + " input").val(0);
+          $("#item" + ecoexpress_order_item_id).remove();
+          $("#" + ecoexpress_order_item_id).remove();
+
+      } else {
+          alert('At least one item is needed to create a shipment.');
+      }
+
+    });
+
+    });
+
+</script>
+<?php $form_session->unsetData('form_data');
+$form_session->unsetData('ecoexpress_errors');
+ ?>
