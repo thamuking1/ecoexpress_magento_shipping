@@ -207,7 +207,7 @@ class Shipment extends \Magento\Backend\App\Action
         $this->curl->post($url,json_encode($post));
         $response = $this->curl->getBody();
 
-        if($this->curl->getStatus() == 200){
+        if($this->curl->getStatus() == 200 || $this->curl->getStatus() == 100){
           $response = json_decode($response, TRUE);
 
           $tracking_no = $response['body']['data']['tracking_no'];
