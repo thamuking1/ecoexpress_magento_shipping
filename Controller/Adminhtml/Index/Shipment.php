@@ -220,7 +220,7 @@ class Shipment extends \Magento\Backend\App\Action
                 ];
 
               $this->shipmentLoader->setOrderId($order->getId());
-              $this->shipmentLoader->setShipmentId($tracking_no);
+              $this->shipmentLoader->setShipmentId(null);
               $this->shipmentLoader->setShipment($data);
               $this->shipmentLoader->setTracking(null);
               $shipment = $this->shipmentLoader->load();
