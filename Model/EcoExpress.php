@@ -201,7 +201,7 @@ class EcoExpress extends AbstractCarrierOnline implements CarrierInterface
         }
 
 		if($service_location == "DOM"){
-        $admin_allowed_methods = explode(',', $this->getConfigData($allowed_methods_key));
+        $admin_allowed_methods = $this->_scopeConfig->getValue('ecoexpress/shipperdetail/allowed_service_types', self::SCOPE_STORE, $this->storeId);
         $admin_allowed_methods = array_flip($admin_allowed_methods);
         $allowed_methods = array_intersect_key($allowed_methods, $admin_allowed_methods);
 		}
