@@ -186,6 +186,13 @@ class Shipment extends \Magento\Backend\App\Action
 
         $token = 'Bearer '.$accountInfo['APIToken'];
 
+        $tot_qty = 0;
+        foreach($post['ecoexpress_order_items'] as $ecoexpress_order_item){
+          $tot_qty += $ecoexpress_order_item;
+        }
+
+        $post['quantity'] = $tot_qty;
+
         $headers = array(
           'Content-Type' => 'application/json',
           'Accept' => 'application/json',
@@ -196,13 +203,6 @@ class Shipment extends \Magento\Backend\App\Action
         $url = "https://app.ecofreight.ae/api/webservices/client/magento/createawb";
 
         $this->curl->setHeaders($headers);
-
-        $tot_qty = 0;
-        foreach($post['ecoexpress_order_items'] as $ecoexpress_order_item){
-          $tot_qty += $ecoexpress_order_item;
-        }
-
-        $post['quantity'] = $tot_qty;
 
         $this->curl->post($url,json_encode($post));
         $response = $this->curl->getBody();
