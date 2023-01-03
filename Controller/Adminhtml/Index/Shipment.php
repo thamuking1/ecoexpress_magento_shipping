@@ -211,6 +211,7 @@ class Shipment extends \Magento\Backend\App\Action
           $response = json_decode($response, TRUE);
 
           $tracking_no = $response['body']['data']['tracking_no'];
+		  $shipment_id = $response['body']['data']['shipment_id'];
 
           $data = [
                   'items' => $post['ecoexpress_order_items'],
@@ -220,7 +221,7 @@ class Shipment extends \Magento\Backend\App\Action
                 ];
 
               $this->shipmentLoader->setOrderId($order->getId());
-              $this->shipmentLoader->setShipmentId(null);
+              $this->shipmentLoader->setShipmentId($shipment_id);
               $this->shipmentLoader->setShipment($data);
               $this->shipmentLoader->setTracking(null);
               $shipment = $this->shipmentLoader->load();
