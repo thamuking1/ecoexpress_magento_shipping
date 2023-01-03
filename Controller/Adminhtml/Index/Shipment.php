@@ -189,6 +189,7 @@ class Shipment extends \Magento\Backend\App\Action
         $headers = array(
           'Content-Type' => 'application/json',
           'Accept' => 'application/json',
+		  'Content-Length' => 20000,
           'Authorization' => $token,
         );
 
