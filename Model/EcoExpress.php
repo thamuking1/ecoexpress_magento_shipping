@@ -190,7 +190,7 @@ class EcoExpress extends AbstractCarrierOnline implements CarrierInterface
         $package_weight = $r->getWeightPounds();
         $package_qty = $r->getPackageQty();
         $service_location = 'DOM';
-        $allowed_methods_key = 'allowed_domestic_methods';
+        $allowed_methods_key = 'allowed_service_types';
         $allowed_methods = $this->servicetypes->toKeyArray();
         $shipper_country = $this->_scopeConfig->getValue('ecoexpress/shipperdetail/shipper_country', self::SCOPE_STORE, $this->storeId);
         if ($this->_scopeConfig->getValue('ecoexpress/shipperdetail/shipper_country', self::SCOPE_STORE, $this->storeId) != $r->
@@ -200,9 +200,11 @@ class EcoExpress extends AbstractCarrierOnline implements CarrierInterface
             $allowed_methods_key = 'allowed_international_methods';
         }
 
+		if($service_location == "DOM"){
         $admin_allowed_methods = explode(',', $this->getConfigData($allowed_methods_key));
         $admin_allowed_methods = array_flip($admin_allowed_methods);
         $allowed_methods = array_intersect_key($allowed_methods, $admin_allowed_methods);
+		}
 
         $accountInfo = $this->helper->getAccountInfo();
 
@@ -236,7 +238,7 @@ class EcoExpress extends AbstractCarrierOnline implements CarrierInterface
           $this->curl->post($url,json_encode($post_data));
           $response = $this->curl->getBody();
 
-          if($this->curl->getStatus() == 200){
+          if($this->curl->getStatus() == 200 || $this->curl->getStatus() == 100){
             $response = json_decode($response, TRUE);
 
             $rate = $this->_rateMethodFactory->create();
